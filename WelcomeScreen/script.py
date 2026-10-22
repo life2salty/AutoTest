@@ -1,18 +1,4 @@
-"""
-Автотест для десктоп-приложения мониторинга сигналов.
-
-Критичный сценарий:
-    Подключиться к сервису-симулятору на порту 2001 и проверить,
-    что приходят 10 сигналов с корректной структурой и что
-    значения обновляются со временем.
-
-Зависимости:
-    pip install pytest
-
-Перед запуском:
-    Симулятор должен быть запущен на 127.0.0.1:2001.
-    Запуск: pytest -v script.py
-"""
+"""Automated tests for a TCP signal-monitoring service."""
 
 import json
 import socket
@@ -29,17 +15,20 @@ RECV_TIMEOUT = 5.0
 
 
 def read_message(sock: socket.socket, buffer: bytes = b"") -> tuple[dict, bytes]:
+    """Read one newline-delimited JSON message, preserving extra bytes."""
     sock.settimeout(RECV_TIMEOUT)
     while b"\n" not in buffer:
         chunk = sock.recv(4096)
         if not chunk:
-            raise ConnectionError("Соединение закрыто сервером")
+            raise ConnectionError("The server closed the connection")
         buffer += chunk
+
     line, buffer = buffer.split(b"\n", 1)
-    return json.loads(line.decode("utf-8").strip()), buffer
+    return json.loads(line.decode("utf-8")), buffer
 
 
 def read_signal_batch(sock: socket.socket) -> list[dict]:
+    """Read the next 10 signal messages from the stream."""
     signals = []
     buffer = b""
     for _ in range(EXPECTED_SIGNALS):
@@ -48,51 +37,48 @@ def read_signal_batch(sock: socket.socket) -> list[dict]:
     return signals
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def client():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((HOST, PORT))
-    yield sock
-    sock.close()
+    """Use a fresh TCP connection for each test."""
+    with socket.create_connection((HOST, PORT), timeout=RECV_TIMEOUT) as sock:
+        yield sock
 
 
 def test_receive_ten_signals_with_full_structure(client):
     signals = read_signal_batch(client)
 
-    assert len(signals) == EXPECTED_SIGNALS, (
-        f"Ожидалось {EXPECTED_SIGNALS} сигналов, получено {len(signals)}"
-    )
+    assert len(signals) == EXPECTED_SIGNALS
 
     for signal in signals:
         missing = REQUIRED_FIELDS - signal.keys()
         assert not missing, (
-            f"У сигнала id={signal.get('id')} отсутствуют поля: {missing}"
+            f"Signal {signal.get('id')} is missing fields: {missing}"
         )
         assert signal["quality"] in VALID_QUALITY, (
-            f"Некорректное качество '{signal['quality']}' у сигнала id={signal['id']}"
+            f"Invalid quality {signal['quality']!r} for signal {signal['id']}"
         )
 
 
 def test_signal_ids_are_unique(client):
     signals = read_signal_batch(client)
-    ids = [s["id"] for s in signals]
-    assert len(set(ids)) == EXPECTED_SIGNALS, f"Дублирующиеся ID сигналов: {ids}"
+    ids = [signal["id"] for signal in signals]
+
+    assert len(set(ids)) == EXPECTED_SIGNALS, (
+        f"Duplicate signal IDs found: {ids}"
+    )
 
 
 def test_values_change_over_time(client):
-    seen_values: dict[int, set] = {}
-    start = time.time()
+    deadline = time.monotonic() + 3.0
+    values_by_id = {}
     buffer = b""
 
-    while time.time() - start < 2.0:
-        try:
-            message, buffer = read_message(client, buffer)
-        except socket.timeout:
-            break
-        seen_values.setdefault(message["id"], set()).add(message["value"])
+    while time.monotonic() < deadline:
+        message, buffer = read_message(client, buffer)
+        signal_id = message["id"]
+        values_by_id.setdefault(signal_id, set()).add(message["value"])
 
-    changing = [sid for sid, values in seen_values.items() if len(values) > 1]
-    assert changing, (
-        "Ни один сигнал не изменил значение за 2 секунды — "
-        "возможно, сервис завис или значения статичны"
-    )
+        if any(len(values) > 1 for values in values_by_id.values()):
+            return
+
+    pytest.fail("No signal value changed within 3 seconds")
