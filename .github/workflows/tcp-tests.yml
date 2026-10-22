@@ -1,0 +1,50 @@
+name: TCP signal tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Start TCP simulator
+        run: |
+          python -u WelcomeScreen/simulator.py > simulator.log 2>&1 &
+          echo $! > simulator.pid
+          for i in {1..30}; do
+            if grep -q "Simulator listening" simulator.log; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat simulator.log
+          exit 1
+
+      - name: Run tests
+        run: python -m pytest -v WelcomeScreen/script.py
+
+      - name: Show simulator log if tests fail
+        if: failure()
+        run: cat simulator.log
+
+      - name: Stop simulator
+        if: always()
+        run: |
+          if [ -f simulator.pid ]; then
+            kill "$(cat simulator.pid)" || true
+          fi
