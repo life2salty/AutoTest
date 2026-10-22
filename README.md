@@ -1,45 +1,56 @@
+# TCP Signal Monitoring — Automated Tests
 
-Самый критичный сценарий
+An educational QA automation project that tests a local TCP service streaming JSON signal data.
 
-«После подключения клиент получает ровно 10 сигналов с полным набором полей и обновляющимися значениями».
+## What is tested
 
-Почему именно он:
+- Receiving 10 signal records with the required fields.
+- Checking that signal IDs are unique within a snapshot.
+- Checking that signal values change over time.
+- Validating the `quality` field against the supported values: `GOOD`, `BAD`, and `UNCERTAIN`.
 
-Это ядро продукта. Приложение существует ровно для того, чтобы показывать эти сигналы. Если данные не приходят или приходят битыми — всё остальное не имеет смысла.
-Это точка входа для всех остальных проверок: без корректного соединения и получения данных нельзя проверить ни обновление, ни качество, ни UI.
-Риск максимальный: ошибки в TCP-протоколе, парсинге, структуре сообщения приводят к тому, что пользователь видит пустую таблицу или мусор — и принимает неверные решения на основе данных мониторинга.Как запустить
+## Tech stack
 
-Инструкция по запуску
-Шаг 1. Запустить симулятор
+- Python
+- pytest
+- TCP sockets
+- JSON
+- GitHub Actions
 
-Симулятор должен быть запущен до запуска тестов — иначе соединение
-на порту 2001 будет отклонено с ошибкой ConnectionRefusedError.
+## Project structure
 
-Открой первый терминал и запусти:
+```text
+WelcomeScreen/
+├── script.py       # Automated tests
+└── simulator.py   # Local TCP test-data simulator
+```
 
-bash
-python simulator.py
-Должно появиться сообщение вида:
+## Run locally
 
-text
-Симулятор слушает 127.0.0.1:2001. Ctrl+C для остановки.
-Оставь этот терминал открытым.
+Use Python 3.10 or newer.
 
-Шаг 2. Запустить тесты
+1. Install the dependency:
 
-Открой второй терминал и выполни:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
 
-bash
-pytest -v script.py
-Флаг -v включает подробный вывод.
+2. In the first terminal, start the simulator from the repository root:
 
-Ожидаемый результат
+   ```bash
+   python -u WelcomeScreen/simulator.py
+   ```
 
-text
-collected 3 items
+3. Keep the simulator running. In a second terminal, run:
 
-script.py::test_receive_ten_signals_with_full_structure PASSED   [ 33%]
-script.py::test_signal_ids_are_unique PASSED                     [ 66%]
-script.py::test_values_change_over_time PASSED                   [100%]
+   ```bash
+   python -m pytest -v WelcomeScreen/script.py
+   ```
 
-========================= 3 passed in 2.43s =========================
+The simulator listens on `127.0.0.1:2001`. Stop it with `Ctrl+C`.
+
+## Limitations
+
+This project uses a local simulator, not a production monitoring service. The tests cover the data stream and basic message validation; they do not test a graphical user interface.
+
+This is a learning portfolio project, not commercial QA experience.
