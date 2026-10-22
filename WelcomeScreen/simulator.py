@@ -1,9 +1,4 @@
-"""
-Минимальный сервис-симулятор для проверки автотеста.
-Отправляет 10 сигналов (JSON, разделённых \n) на порт 2001.
-Значения меняются (синусоида), качество — GOOD.
-Остановка: Ctrl+C.
-"""
+"""Local TCP simulator that streams changing JSON signal values."""
 
 import json
 import math
@@ -13,10 +8,11 @@ import time
 HOST = "127.0.0.1"
 PORT = 2001
 SIGNALS = 10
+SNAPSHOT_INTERVAL = 0.2
 
 
 def build_snapshot(tick: int) -> str:
-    """Сформировать один снимок из 10 сигналов в виде строки JSON+\n."""
+    """Return 10 newline-delimited JSON signal records."""
     lines = []
     for i in range(SIGNALS):
         signal = {
@@ -30,28 +26,34 @@ def build_snapshot(tick: int) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((HOST, PORT))
-    server.listen(1)
-    print(f"Симулятор слушает {HOST}:{PORT}. Ctrl+C для остановки.")
-
-    conn, addr = server.accept()
-    print(f"Клиент подключился: {addr}")
-
+def handle_client(conn: socket.socket, addr) -> None:
+    print(f"Client connected: {addr}")
     tick = 0
     try:
         while True:
             conn.sendall(build_snapshot(tick).encode("utf-8"))
             tick += 1
-            time.sleep(0.2)  # 5 снимков в секунду — достаточно для тестов
-    except (BrokenPipeError, KeyboardInterrupt):
-        print("Остановлено.")
+            time.sleep(SNAPSHOT_INTERVAL)
+    except (BrokenPipeError, ConnectionResetError):
+        print(f"Client disconnected: {addr}")
     finally:
         conn.close()
-        server.close()
+
+
+def main() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((HOST, PORT))
+        server.listen()
+        print(f"Simulator listening on {HOST}:{PORT}")
+
+        while True:
+            conn, addr = server.accept()
+            handle_client(conn, addr)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nSimulator stopped.")
